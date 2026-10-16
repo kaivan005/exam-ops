@@ -56,4 +56,8 @@ The SQL schema must be applied once against the Aiven PostgreSQL service with `D
 
 GitHub Pages hosts only the compiled React frontend. The Express API must be deployed separately on a public HTTPS host, with Aiven as its database. In repository settings, enable Pages with **GitHub Actions** as the source and add the repository variable `VITE_API_URL`, for example `https://api.example.com/api/v1`. The workflow in `.github/workflows/pages.yml` builds `/exam-ops/` and deploys it automatically from `main`.
 
+### Easiest HTTPS API deployment
+
+The repository includes `render.yaml` for Render. Open Render, choose **New → Blueprint**, connect this repository, and select `render.yaml`. When prompted, provide the Aiven `DATABASE_URL`; Render generates `SESSION_SECRET`, supplies HTTPS, and exposes the API health check at `https://examops-api.onrender.com/health` (the exact hostname is shown by Render). After the service is healthy, set the GitHub repository variable `VITE_API_URL` to that API origin, for example `https://examops-api.onrender.com`, then rerun the Pages workflow. The Blueprint keeps PostgreSQL TLS encrypted while allowing Aiven's certificate chain; for stricter verification, provide Aiven's CA certificate and set `DATABASE_SSL_REJECT_UNAUTHORIZED=true`.
+
 Set the API's `WEB_ORIGIN` to the Pages origin, such as `https://kaivan005.github.io`, and keep `DATABASE_URL`, `SESSION_SECRET`, and all Aiven credentials only in the API host's environment. Do not put `DATABASE_URL`, `SESSION_SECRET`, or `AIVEN_API_TOKEN` in GitHub Pages variables because Vite variables are public.

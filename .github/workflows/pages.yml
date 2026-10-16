@@ -28,7 +28,7 @@ jobs:
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
-          test -n "$VITE_API_URL" || { echo "Set the repository variable VITE_API_URL to the public HTTPS API origin."; exit 1; }
+          test -n "$VITE_API_URL" || { echo "Deploy the API first, then set VITE_API_URL to its public HTTPS origin."; exit 1; }
           case "$VITE_API_URL" in https://*) ;; *) echo "VITE_API_URL must use HTTPS."; exit 1 ;; esac
           case "$VITE_API_URL" in *github.io*) echo "Warning: VITE_API_URL points to a GitHub Pages host. Ensure the API is reachable from this origin."; ;; esac
       - run: npm run build --workspace apps/web

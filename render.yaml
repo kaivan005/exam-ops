@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: examops-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: WEB_ORIGIN
+        value: https://kaivan005.github.io
+      - key: SESSION_COOKIE_SAMESITE
+        value: none
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
