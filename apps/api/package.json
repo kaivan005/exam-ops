@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "db:init": "tsx db/apply-migrations.ts",
     "db:seed": "tsx db/seed.ts"
   },
   "dependencies": {

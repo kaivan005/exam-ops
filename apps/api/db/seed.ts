@@ -23,6 +23,13 @@ async function main() {
       const user = await client.query<{ id: string }>('SELECT "id" FROM "User" WHERE "email" = $1', [email]);
       await client.query('INSERT INTO "StudentProfile" ("id", "userId", "institutionalId", "program", "year") VALUES ($1, $2, $3, $4, $5) ON CONFLICT ("userId") DO NOTHING', [randomUUID(), user.rows[0].id, `CSE2026${String(index + 1).padStart(3, "0")}`, "B.Tech Computer Science", 3]);
     }
+    for (const [index, name] of ["Neel Joshi", "Sara Khan"].entries()) {
+      const email = `invigilator${index + 1}@examops.local`;
+      const userId = randomUUID();
+      await client.query('INSERT INTO "User" ("id", "email", "name", "passwordHash", "role", "departmentId", "isActive", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, \'INVIGILATOR\'::"Role", $5, true, NOW(), NOW()) ON CONFLICT ("email") DO NOTHING', [userId, email, name, passwordHash, resolvedDepartmentId]);
+      const user = await client.query<{ id: string }>('SELECT "id" FROM "User" WHERE "email" = $1', [email]);
+      await client.query('INSERT INTO "InvigilatorProfile" ("id", "userId", "employeeId") VALUES ($1, $2, $3) ON CONFLICT ("userId") DO NOTHING', [randomUUID(), user.rows[0].id, `INV2026${String(index + 1).padStart(3, "0")}`]);
+    }
     for (const [code, name] of [["CS301", "Distributed Systems"], ["CS302", "Secure Software Engineering"]]) await client.query('INSERT INTO "Course" ("id", "code", "name", "departmentId") VALUES ($1, $2, $3, $4) ON CONFLICT ("code") DO NOTHING', [randomUUID(), code, name, resolvedDepartmentId]);
     for (const [code, name, courseCode] of [["CS301A", "Distributed Systems", "CS301"], ["CS302A", "Secure Software Engineering", "CS302"]]) {
       const course = await client.query<{ id: string }>('SELECT "id" FROM "Course" WHERE "code" = $1', [courseCode]);

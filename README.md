@@ -9,14 +9,14 @@ Prerequisites: Node 22+, Docker Desktop, and an Aiven PostgreSQL service. Copy t
 ```bash
 cp .env.example .env
 npm install
-psql "$DATABASE_URL" -f apps/api/db/migrations/20261016182221_init/migration.sql
+npm run db:init
 npm run db:seed
 npm run dev
 ```
 
 The database schema is applied with the checked-in SQL migration; Prisma is not required. The Aiven connection string must include `sslmode=require`.
 
-The adaptive operations module adds the Change desk and Risk radar views. Apply `apps/api/db/migrations/20261017_adaptive_ops.sql` after the base schema to enable disruption history, ranked room/invigilator alternatives, HOD approval records, decision history, and post-examination reviews.
+The adaptive operations module adds the Change desk and Risk radar views. `npm run db:init` applies the base and adaptive SQL migrations, tracking completed migrations in Aiven so it is safe to rerun.
 
 Open `http://localhost:5173` for the Vite client. The local API health check is `http://localhost:4000/health`; the Compose-served app uses `http://localhost:5173/health`.
 
