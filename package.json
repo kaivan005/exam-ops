@@ -9,20 +9,9 @@
     "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
     "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
     "test": "npm run test --workspace apps/api && npm run test --workspace apps/web",
-    "db:generate": "npm run prisma:generate --workspace apps/api",
-    "db:migrate": "npm run prisma:migrate --workspace apps/api",
-    "db:seed": "npm run prisma:seed --workspace apps/api",
-    "db:contract": "npm run prisma8:contract --workspace apps/api",
-    "db:verify": "npm run prisma8:verify --workspace apps/api"
+    "db:seed": "npm run db:seed --workspace apps/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
-  },
-  "allowScripts": {
-    "@prisma/engines@8.0.0-rc.23": true,
-    "argon2@0.41.1": true,
-    "esbuild@0.28.2": true,
-    "fsevents@2.3.3": true,
-    "prisma@8.0.0-rc.23": true
   }
 }

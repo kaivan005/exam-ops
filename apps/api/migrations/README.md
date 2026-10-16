@@ -1,1 +1,7 @@
-Run `npm run prisma:migrate --workspace apps/api` with a reachable PostgreSQL DATABASE_URL to apply migrations. In development, create the first migration with `npx prisma migrate dev --schema apps/api/prisma/schema.prisma --name init`.
+Apply the checked-in SQL schema once to Aiven PostgreSQL:
+
+```bash
+psql "$DATABASE_URL" -f apps/api/db/migrations/20261016182221_init/migration.sql
+```
+
+The API uses parameterized `pg` queries after that. The session store creates its `session` table automatically on first startup.
