@@ -1,0 +1,1 @@
+Run `npm run prisma:migrate --workspace apps/api` with a reachable PostgreSQL DATABASE_URL to apply migrations. In development, create the first migration with `npx prisma migrate dev --schema apps/api/prisma/schema.prisma --name init`.
