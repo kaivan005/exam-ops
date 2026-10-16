@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
 import session from 'express-session';
@@ -8,18 +9,31 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import argon2 from 'argon2';
 import { z } from 'zod';
-import { getDashboard, getUserByEmail, listIssues, createIssue, updateIssue, pool } from './db';
+import { getDashboard, getUserByEmail, listAuditLogs, listIssues, listNotifications, listRooms, listSchedules, markNotificationRead, createIssue, updateIssue, pool } from './db';
 import { approveDisruption, applyAlternative, createDisruption, getAlternatives, listDisruptions, listRisks, recommendAlternatives, saveReview } from './adaptive';
 import { asyncRoute, requireAuth, requireRole } from './middleware';
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test';
 const PgStore = connectPgSimple(session);
 app.set('trust proxy', isProduction ? 1 : 0);
 app.use(helmet());
-app.use(cors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173', credentials: true }));
+app.use(cors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173', credentials: true, exposedHeaders: ['X-CSRF-Token'] }));
 app.use(express.json({ limit: '100kb' }));
-app.use(session({ store: new PgStore({ pool, createTableIfMissing: true }), secret: process.env.SESSION_SECRET ?? 'dev-only-change-me', resave: false, saveUninitialized: false, cookie: { httpOnly: true, sameSite: process.env.SESSION_COOKIE_SAMESITE === 'none' ? 'none' : 'lax', secure: isProduction, maxAge: 1000 * 60 * 60 * 8 } }));
+app.use(session({ store: isTest ? undefined : new PgStore({ pool, createTableIfMissing: true }), secret: process.env.SESSION_SECRET ?? 'dev-only-change-me', resave: false, saveUninitialized: false, cookie: { httpOnly: true, sameSite: process.env.SESSION_COOKIE_SAMESITE === 'none' ? 'none' : 'lax', secure: isProduction, maxAge: 1000 * 60 * 60 * 8 } }));
+app.use((req, res, next) => {
+  req.session.csrfToken ??= randomBytes(32).toString('hex');
+  res.setHeader('X-CSRF-Token', req.session.csrfToken);
+  next();
+});
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const provided = req.header('X-CSRF-Token');
+  const expected = req.session.csrfToken;
+  if (!provided || !expected || provided.length !== expected.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return res.status(403).json({ error: { code: 'CSRF_INVALID', message: 'CSRF validation failed' } });
+  next();
+});
 app.use(express.static(path.resolve(__dirname, '../../web/dist')));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
@@ -33,6 +47,8 @@ app.post('/api/v1/auth/login', loginLimiter, asyncRoute(async (req, res) => {
   if (!user || !user.isActive || !(await argon2.verify(user.passwordHash, parsed.data.password))) return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' } });
   await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
   req.session.userId = user.id; req.session.role = user.role;
+  req.session.csrfToken = randomBytes(32).toString('hex');
+  res.setHeader('X-CSRF-Token', req.session.csrfToken);
   res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, departmentId: user.departmentId } });
 }));
 app.post('/api/v1/auth/logout', requireAuth, asyncRoute(async (req, res) => { await new Promise<void>((resolve, reject) => req.session.destroy(err => err ? reject(err) : resolve())); res.clearCookie('connect.sid'); res.status(204).send(); }));
@@ -41,6 +57,8 @@ app.get('/api/v1/auth/me', requireAuth, (_req, res) => { const user = res.locals
 app.get('/api/v1/dashboard', requireAuth, asyncRoute(async (_req, res) => {
   res.json(await getDashboard(res.locals.user));
 }));
+app.get('/api/v1/schedules', requireAuth, asyncRoute(async (_req, res) => { res.json(await listSchedules(res.locals.user)); }));
+app.get('/api/v1/rooms', requireAuth, asyncRoute(async (_req, res) => { res.json(await listRooms()); }));
 
 app.get('/api/v1/issues', requireAuth, asyncRoute(async (_req, res) => {
   res.json(await listIssues(res.locals.user));
@@ -53,7 +71,7 @@ app.post('/api/v1/issues', requireAuth, asyncRoute(async (req, res) => {
 app.patch('/api/v1/issues/:id', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const result = z.object({ status: z.enum(['OPEN','IN_PROGRESS','RESOLVED','REJECTED']), assigneeId: z.string().cuid().nullable().optional() }).safeParse(req.body); if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Issue update is invalid' } });
   const issueId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
-  const issue = await updateIssue(issueId, result.data);
+  const issue = await updateIssue(issueId, result.data, res.locals.user.id);
   if (!issue) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Issue not found' } });
   res.json(issue);
 }));
@@ -69,7 +87,7 @@ app.post('/api/v1/disruptions', requireAuth, requireRole('ADMIN', 'INVIGILATOR')
 }));
 app.post('/api/v1/disruptions/:id/recommend', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
-  const alternatives = await recommendAlternatives(disruptionId);
+  const alternatives = await recommendAlternatives(disruptionId, res.locals.user.id);
   if (!alternatives) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Disruption not found' } });
   res.json({ alternatives });
 }));
@@ -81,15 +99,23 @@ app.post('/api/v1/disruptions/:id/approve', requireAuth, requireRole('HOD'), asy
   const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
   const result = z.object({ reason: z.string().min(5).max(1000) }).safeParse(req.body);
   if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Approval reason is required' } });
-  res.json(await approveDisruption(disruptionId, res.locals.user, result.data.reason));
+  try { res.json(await approveDisruption(disruptionId, res.locals.user, result.data.reason)); } catch (error) { res.status(403).json({ error: { code: 'FORBIDDEN', message: error instanceof Error ? error.message : 'Approval is not permitted' } }); }
 }));
 app.post('/api/v1/disruptions/:id/apply', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
   const result = z.object({ alternativeId: z.string().min(1), reason: z.string().min(5).max(1000) }).safeParse(req.body);
   if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Alternative and decision reason are required' } });
-  try { res.json(await applyAlternative(disruptionId, result.data.alternativeId, res.locals.user, result.data.reason)); } catch (error) { res.status(409).json({ error: { code: 'CONFLICT', message: error instanceof Error ? error.message : 'The alternative can no longer be applied' } }); }
+  try { const applied = await applyAlternative(disruptionId, result.data.alternativeId, res.locals.user, result.data.reason); if (!applied) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Disruption or alternative not found' } }); res.json(applied); } catch (error) { res.status(409).json({ error: { code: 'CONFLICT', message: error instanceof Error ? error.message : 'The alternative can no longer be applied' } }); }
 }));
 app.get('/api/v1/risks', requireAuth, asyncRoute(async (_req, res) => { res.json(await listRisks(res.locals.user)); }));
+app.get('/api/v1/notifications', requireAuth, asyncRoute(async (_req, res) => { res.json(await listNotifications(res.locals.user.id)); }));
+app.post('/api/v1/notifications/:id/read', requireAuth, asyncRoute(async (req, res) => {
+  const notificationId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  const notification = await markNotificationRead(notificationId, res.locals.user.id);
+  if (!notification) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Notification not found' } });
+  res.json(notification);
+}));
+app.get('/api/v1/audit', requireAuth, requireRole('ADMIN', 'HOD'), asyncRoute(async (_req, res) => { res.json(await listAuditLogs(res.locals.user)); }));
 app.post('/api/v1/reviews/:scheduleId', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
   const scheduleId = typeof req.params.scheduleId === 'string' ? req.params.scheduleId : req.params.scheduleId[0];
   const result = z.object({ plannedAttendance: z.number().int().nonnegative().optional(), actualAttendance: z.number().int().nonnegative().optional(), plannedRoomCount: z.number().int().nonnegative().optional(), actualRoomCount: z.number().int().nonnegative().optional(), invigilatorCoverage: z.number().int().nonnegative().optional(), disruptionCount: z.number().int().nonnegative().optional(), resolutionMinutes: z.number().int().nonnegative().optional(), alternativeWorked: z.boolean().optional(), lessonsLearned: z.string().max(4000).optional(), preventiveActions: z.string().max(4000).optional() }).safeParse(req.body);

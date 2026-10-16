@@ -24,6 +24,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Validate public API URL
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          test -n "$VITE_API_URL" || { echo "Set the repository variable VITE_API_URL to the public HTTPS API origin."; exit 1; }
+          case "$VITE_API_URL" in https://*) ;; *) echo "VITE_API_URL must use HTTPS."; exit 1 ;; esac
+          case "$VITE_API_URL" in *github.io*) echo "VITE_API_URL must point to the API host, not GitHub Pages."; exit 1 ;; esac
       - run: npm run build --workspace apps/web
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
