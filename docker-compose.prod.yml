@@ -14,5 +14,5 @@ services:
     env_file: .env.production
     depends_on: { db: { condition: service_healthy } }
     ports: ["127.0.0.1:4000:4000"]
-    command: sh -c "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && node apps/api/dist/src/server.js"
+    command: sh -c "npx prisma db verify && npx prisma7 migrate deploy --config apps/api/prisma7.config.ts && node apps/api/dist/src/server.js"
 volumes: { examops-db: }

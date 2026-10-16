@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npx prisma generate --schema apps/api/prisma/schema.prisma
+      - run: npx prisma --version
+      - run: npx prisma7 generate --config apps/api/prisma7.config.ts
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

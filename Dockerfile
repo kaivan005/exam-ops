@@ -5,7 +5,7 @@ COPY apps/api/package*.json apps/api/
 COPY apps/web/package*.json apps/web/
 RUN npm ci
 COPY . .
-RUN npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build
+RUN npx prisma7 generate --config apps/api/prisma7.config.ts && npm run build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app

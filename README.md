@@ -1,6 +1,6 @@
 # ExamOps
 
-ExamOps is a session-authenticated examination operations workspace for departments, students, invigilators, and HODs. This repository contains a TypeScript Express API, React/Vite client, Prisma/PostgreSQL schema, Docker setup, tests, and GitHub Actions deployment configuration.
+ExamOps is a session-authenticated examination operations workspace for departments, students, invigilators, and HODs. This repository contains a TypeScript Express API, React/Vite client, Prisma/PostgreSQL schema, Docker setup, tests, and GitHub Actions deployment configuration. Prisma ORM 8 is the deployment CLI and contract layer; the existing Prisma 7 client is isolated as `prisma7` compatibility tooling while routes are migrated.
 
 ## Run locally
 
@@ -15,6 +15,8 @@ npx prisma migrate dev --schema apps/api/prisma/schema.prisma --name init
 npm run db:seed
 npm run dev
 ```
+
+Prisma 8 checks are available with `npm run db:contract` and `npm run db:verify` after the database has been adopted by the Prisma 8 contract. Existing schema migrations still run through the explicit `prisma7` compatibility command until the staged route and migration handoff is complete.
 
 Open `http://localhost:5173` for the Vite client. The local API health check is `http://localhost:4000/health`; the Compose-served app uses `http://localhost:5173/health`.
 
