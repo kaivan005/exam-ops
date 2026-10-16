@@ -1,6 +1,9 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+
+dotenv.config();
+dotenv.config({ path: "../../.env" });
 
 export type Role = "ADMIN" | "STUDENT" | "INVIGILATOR" | "HOD";
 export type User = { id: string; email: string; name: string; passwordHash: string; role: Role; departmentId: string | null; isActive: boolean };

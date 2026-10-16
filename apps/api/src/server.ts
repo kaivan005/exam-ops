@@ -9,6 +9,7 @@ import rateLimit from 'express-rate-limit';
 import argon2 from 'argon2';
 import { z } from 'zod';
 import { getDashboard, getUserByEmail, listIssues, createIssue, updateIssue, pool } from './db';
+import { approveDisruption, applyAlternative, createDisruption, getAlternatives, listDisruptions, listRisks, recommendAlternatives, saveReview } from './adaptive';
 import { asyncRoute, requireAuth, requireRole } from './middleware';
 
 const app = express();
@@ -18,7 +19,7 @@ app.set('trust proxy', isProduction ? 1 : 0);
 app.use(helmet());
 app.use(cors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173', credentials: true }));
 app.use(express.json({ limit: '100kb' }));
-app.use(session({ store: new PgStore({ pool, createTableIfMissing: true }), secret: process.env.SESSION_SECRET ?? 'dev-only-change-me', resave: false, saveUninitialized: false, cookie: { httpOnly: true, sameSite: 'lax', secure: isProduction, maxAge: 1000 * 60 * 60 * 8 } }));
+app.use(session({ store: new PgStore({ pool, createTableIfMissing: true }), secret: process.env.SESSION_SECRET ?? 'dev-only-change-me', resave: false, saveUninitialized: false, cookie: { httpOnly: true, sameSite: process.env.SESSION_COOKIE_SAMESITE === 'none' ? 'none' : 'lax', secure: isProduction, maxAge: 1000 * 60 * 60 * 8 } }));
 app.use(express.static(path.resolve(__dirname, '../../web/dist')));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
@@ -55,6 +56,45 @@ app.patch('/api/v1/issues/:id', requireAuth, requireRole('ADMIN'), asyncRoute(as
   const issue = await updateIssue(issueId, result.data);
   if (!issue) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Issue not found' } });
   res.json(issue);
+}));
+
+app.get('/api/v1/disruptions', requireAuth, asyncRoute(async (req, res) => {
+  const search = typeof req.query.search === 'string' ? req.query.search : '';
+  res.json(await listDisruptions(res.locals.user, search));
+}));
+app.post('/api/v1/disruptions', requireAuth, requireRole('ADMIN', 'INVIGILATOR'), asyncRoute(async (req, res) => {
+  const result = z.object({ title: z.string().min(3).max(140), description: z.string().min(10).max(4000), category: z.enum(['ROOM','INVIGILATOR','TIMETABLE','REGISTRATION','EQUIPMENT','WEATHER','ANNOUNCEMENT']), severity: z.enum(['LOW','MEDIUM','HIGH','CRITICAL']), scheduleId: z.string().optional(), affectedStartsAt: z.string().datetime().optional(), affectedEndsAt: z.string().datetime().optional(), requiresHodApproval: z.boolean().optional() }).safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Disruption details are invalid' } });
+  res.status(201).json(await createDisruption(result.data, res.locals.user));
+}));
+app.post('/api/v1/disruptions/:id/recommend', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  const alternatives = await recommendAlternatives(disruptionId);
+  if (!alternatives) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Disruption not found' } });
+  res.json({ alternatives });
+}));
+app.get('/api/v1/disruptions/:id/alternatives', requireAuth, asyncRoute(async (req, res) => {
+  const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  res.json(await getAlternatives(disruptionId));
+}));
+app.post('/api/v1/disruptions/:id/approve', requireAuth, requireRole('HOD'), asyncRoute(async (req, res) => {
+  const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  const result = z.object({ reason: z.string().min(5).max(1000) }).safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Approval reason is required' } });
+  res.json(await approveDisruption(disruptionId, res.locals.user, result.data.reason));
+}));
+app.post('/api/v1/disruptions/:id/apply', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  const disruptionId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+  const result = z.object({ alternativeId: z.string().min(1), reason: z.string().min(5).max(1000) }).safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Alternative and decision reason are required' } });
+  try { res.json(await applyAlternative(disruptionId, result.data.alternativeId, res.locals.user, result.data.reason)); } catch (error) { res.status(409).json({ error: { code: 'CONFLICT', message: error instanceof Error ? error.message : 'The alternative can no longer be applied' } }); }
+}));
+app.get('/api/v1/risks', requireAuth, asyncRoute(async (_req, res) => { res.json(await listRisks(res.locals.user)); }));
+app.post('/api/v1/reviews/:scheduleId', requireAuth, requireRole('ADMIN'), asyncRoute(async (req, res) => {
+  const scheduleId = typeof req.params.scheduleId === 'string' ? req.params.scheduleId : req.params.scheduleId[0];
+  const result = z.object({ plannedAttendance: z.number().int().nonnegative().optional(), actualAttendance: z.number().int().nonnegative().optional(), plannedRoomCount: z.number().int().nonnegative().optional(), actualRoomCount: z.number().int().nonnegative().optional(), invigilatorCoverage: z.number().int().nonnegative().optional(), disruptionCount: z.number().int().nonnegative().optional(), resolutionMinutes: z.number().int().nonnegative().optional(), alternativeWorked: z.boolean().optional(), lessonsLearned: z.string().max(4000).optional(), preventiveActions: z.string().max(4000).optional() }).safeParse(req.body);
+  if (!result.success) return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Review details are invalid' } });
+  res.status(201).json(await saveReview(scheduleId, result.data, res.locals.user));
 }));
 
 app.use((req, res, next) => {
